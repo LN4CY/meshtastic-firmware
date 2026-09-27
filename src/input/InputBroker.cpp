@@ -1,4 +1,5 @@
 #include "InputBroker.h"
+#include "ButtonHelper.h"
 #include "PowerFSM.h" // needed for event trigger
 #include "configuration.h"
 #include "graphics/Screen.h"
@@ -48,7 +49,7 @@ static bool touchBacklightActive = false;
 #endif
 #endif
 
-#if defined(BUTTON_PIN) || defined(ARCH_PORTDUINO) || defined(MUZI_BASE)
+#if defined(BUTTON_PIN) || HAS_BUTTON || defined(ARCH_PORTDUINO) || defined(MUZI_BASE)
 ButtonThread *UserButtonThread = nullptr;
 #endif
 
@@ -172,26 +173,28 @@ void InputBroker::pollSoonWorker(void *p)
 void InputBroker::Init()
 {
 
-#ifdef BUTTON_PIN
+#if defined(BUTTON_PIN) || HAS_BUTTON
 #ifdef ARCH_ESP32
-
+    uint32_t btnPin = getResolvedButtonPin();
+    if (btnPin != 0xFF) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
 #ifdef BUTTON_NEED_PULLUP
-    pinMode(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN, INPUT_PULLUP);
+        pinMode(btnPin, INPUT_PULLUP);
 #else
-    pinMode(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN, INPUT); // default to BUTTON_PIN
+        pinMode(btnPin, INPUT); // default
 #endif
 #else
-    pinMode(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN, INPUT); // default to BUTTON_PIN
+        pinMode(btnPin, INPUT); // default
 #ifdef BUTTON_NEED_PULLUP
-    gpio_pullup_en((gpio_num_t)(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN));
-    delay(10);
+        gpio_pullup_en((gpio_num_t)btnPin);
+        delay(10);
 #endif
 #ifdef BUTTON_NEED_PULLUP2
-    gpio_pullup_en((gpio_num_t)BUTTON_NEED_PULLUP2);
-    delay(10);
+        gpio_pullup_en((gpio_num_t)BUTTON_NEED_PULLUP2);
+        delay(10);
 #endif
 #endif
+    }
 #endif
 #endif
 
@@ -349,12 +352,9 @@ void InputBroker::Init()
     DownButtonThread->initButton(downConfig);
 #endif
 
-#if defined(BUTTON_PIN)
-#if defined(USERPREFS_BUTTON_PIN)
-    int _pinNum = config.device.button_gpio ? config.device.button_gpio : USERPREFS_BUTTON_PIN;
-#else
-    int _pinNum = config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN;
-#endif
+#if defined(BUTTON_PIN) || HAS_BUTTON
+    int _pinNum = getResolvedButtonPin();
+
 #ifndef BUTTON_ACTIVE_LOW
 #define BUTTON_ACTIVE_LOW true
 #endif

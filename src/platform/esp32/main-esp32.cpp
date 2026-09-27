@@ -2,8 +2,8 @@
 #include "PowerMon.h"
 #include "configuration.h"
 #include "esp_task_wdt.h"
+#include "input/ButtonHelper.h"
 #include "main.h"
-
 #if !defined(CONFIG_IDF_TARGET_ESP32S2) && !MESHTASTIC_EXCLUDE_BLUETOOTH
 #include "nimble/NimbleBluetooth.h"
 #endif
@@ -376,8 +376,9 @@ void cpuDeepSleep(uint32_t msecToWake)
     // arms nothing if any pin in it lacks RTC function, so one bad pin would veto the good one.
 #if defined(DEEP_SLEEP_WAKE_PIN)
     const int wakeButton = DEEP_SLEEP_WAKE_PIN;
-#elif defined(BUTTON_PIN)
-    const int wakeButton = config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN;
+#elif defined(BUTTON_PIN) || HAS_BUTTON
+    const int espBtnPin = getResolvedButtonPin();
+    const int wakeButton = (espBtnPin != 0xFF) ? espBtnPin : -1;
 #else
     const int wakeButton = -1;
 #endif
@@ -390,7 +391,7 @@ void cpuDeepSleep(uint32_t msecToWake)
 
     // FIXME, disable internal rtc pullups/pulldowns on the non isolated pins. for inputs that we aren't using
     // to detect wake and in normal operation the external part drives them hard.
-#if defined(BUTTON_PIN) || defined(DEEP_SLEEP_WAKE_PIN)
+#if defined(BUTTON_PIN) || defined(DEEP_SLEEP_WAKE_PIN) || HAS_BUTTON
     // Only GPIOs with RTC functionality can go in this bit map, and which ones those are differs
     // per SoC (ESP32 0,2,4,12-15,25-27,32-39 / S2 and S3 0-21 / C6 0-7 / H2 7-14 / P4 0-15).
     // filterExt1WakeMask() below enforces that rather than each variant having to know it.
@@ -399,13 +400,20 @@ void cpuDeepSleep(uint32_t msecToWake)
     // exists only on ESP32/S2/S3 for IDF backwards compatibility, so keying off it silently
     // drops the whole ext1 path on C6, H2 and P4, which all have the hardware.
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
-    uint64_t gpioMask = (1ULL << wakeButton);
+    uint64_t gpioMask = 0;
+    if (wakeButton >= 0) {
+        gpioMask = (1ULL << wakeButton);
+    }
 #endif
 #ifdef ALT_BUTTON_WAKE
     gpioMask |= (1ULL << BUTTON_PIN_ALT);
 #endif
 #ifdef BUTTON_NEED_PULLUP
-    gpio_pullup_en((gpio_num_t)BUTTON_PIN);
+    if (wakeButton >= 0 && wakeButton == espBtnPin) {
+        gpio_pullup_en((gpio_num_t)wakeButton);
+    } else if (wakeButton >= 0) {
+        gpio_pullup_en((gpio_num_t)wakeButton);
+    }
 #endif
 
     // Not needed because both of the current boards have external pullups
